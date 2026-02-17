@@ -1,4 +1,4 @@
-name: Build Moto One Vision (LineageOS Base)
+name: Build Moto One Vision (Final Fix)
 on: [workflow_dispatch]
 
 jobs:
@@ -7,16 +7,16 @@ jobs:
     steps:
     - name: Checkout Source (LineageOS Mirror)
       run: |
-        # Official repo is dead, using LineageOS mirror (Exynos 9609/9610)
         git clone https://github.com/LineageOS/android_kernel_motorola_exynos9610.git source
         cd source
-        # Checkout Android 11 branch
         git checkout lineage-18.1
 
     - name: Install Dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y git bc bison flex libssl-dev build-essential libncurses5-dev libncursesw5-dev zlib1g-dev lib32z1 lib32ncurses5-dev liblz4-tool libtinfo5
+        # Install system cross-compilers just in case
+        sudo apt-get install -y gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
     - name: Download Proton Clang
       run: |
@@ -30,8 +30,7 @@ jobs:
         export CROSS_COMPILE=$GITHUB_WORKSPACE/clang/bin/aarch64-linux-gnu-
         export CC=clang
         
-        # Load the Kane config
-        # Lineage usually names it 'kane_defconfig' or 'exynos9609-kane_defconfig'
+        # Load Kane Config
         if [ -f "arch/arm64/configs/exynos9609-kane_defconfig" ]; then
            make O=out exynos9609-kane_defconfig
         else
@@ -45,21 +44,23 @@ jobs:
         echo "CONFIG_CPU_FREQ_GOV_ONDEMAND=y" >> out/.config
         echo "CONFIG_CPU_FREQ_GOV_CONSERVATIVE=y" >> out/.config
         
-        # --- NETWORKING TWEAKS ---
+        # --- NETWORKING & STATS ---
         echo "CONFIG_TCP_CONG_WESTWOOD=y" >> out/.config
         echo "CONFIG_DEFAULT_WESTWOOD=y" >> out/.config
-        
-        # --- ENABLE STATS (Required for FDE.AI) ---
         echo "CONFIG_CPU_FREQ_STAT=y" >> out/.config
         
         # Update config
         make O=out olddefconfig
 
-    - name: Build Kernel
+    - name: Build Kernel (FIXED)
       run: |
         cd source
         export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
+        
+        # The critical fix: Explicitly telling it to build for ARM64
         make O=out \
+        ARCH=arm64 \
+        SUBARCH=arm64 \
         CC=clang \
         CLANG_TRIPLE=aarch64-linux-gnu- \
         CROSS_COMPILE=aarch64-linux-gnu- \

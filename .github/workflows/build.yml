@@ -1,11 +1,11 @@
-name: Build Moto One Vision (Final Fix)
+name: Build Moto One Vision (Rescue Mode)
 on: [workflow_dispatch]
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-20.04  # Downgrading OS to fix compiler errors
     steps:
-    - name: Checkout Source (LineageOS Mirror)
+    - name: Checkout Source
       run: |
         git clone https://github.com/LineageOS/android_kernel_motorola_exynos9610.git source
         cd source
@@ -14,9 +14,7 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y git bc bison flex libssl-dev build-essential libncurses5-dev libncursesw5-dev zlib1g-dev lib32z1 lib32ncurses5-dev liblz4-tool libtinfo5
-        # Install system cross-compilers just in case
-        sudo apt-get install -y gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+        sudo apt-get install -y git bc bison flex libssl-dev build-essential libncurses5-dev libncursesw5-dev zlib1g-dev lib32z1 lib32ncurses5-dev liblz4-tool libtinfo5 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
     - name: Download Proton Clang
       run: |
@@ -26,11 +24,16 @@ jobs:
       run: |
         cd source
         export ARCH=arm64
-        export SUBARCH=arm64
-        export CROSS_COMPILE=$GITHUB_WORKSPACE/clang/bin/aarch64-linux-gnu-
-        export CC=clang
         
-        # Load Kane Config
+        # Use system GCC for Cross Compile to avoid assembler issues
+        export CROSS_COMPILE=aarch64-linux-gnu-
+        export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+        export CC=$GITHUB_WORKSPACE/clang/bin/clang
+        
+        # Fix for DTC error (multiple definition)
+        export HOSTCFLAGS="-fcommon"
+
+        # Load Config
         if [ -f "arch/arm64/configs/exynos9609-kane_defconfig" ]; then
            make O=out exynos9609-kane_defconfig
         else
@@ -39,32 +42,28 @@ jobs:
 
         # --- UNLOCK GOVERNORS ---
         echo "CONFIG_CPU_FREQ_GOV_PERFORMANCE=y" >> out/.config
-        echo "CONFIG_CPU_FREQ_GOV_POWERSAVE=y" >> out/.config
-        echo "CONFIG_CPU_FREQ_GOV_USERSPACE=y" >> out/.config
         echo "CONFIG_CPU_FREQ_GOV_ONDEMAND=y" >> out/.config
         echo "CONFIG_CPU_FREQ_GOV_CONSERVATIVE=y" >> out/.config
-        
-        # --- NETWORKING & STATS ---
-        echo "CONFIG_TCP_CONG_WESTWOOD=y" >> out/.config
-        echo "CONFIG_DEFAULT_WESTWOOD=y" >> out/.config
         echo "CONFIG_CPU_FREQ_STAT=y" >> out/.config
         
-        # Update config
         make O=out olddefconfig
 
-    - name: Build Kernel (FIXED)
+    - name: Build
       run: |
         cd source
         export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
         
-        # The critical fix: Explicitly telling it to build for ARM64
+        # We disable -Werror to ignore the struct offset warning
+        # We use HOSTCFLAGS=-fcommon to fix the dtc linker error
+        
         make O=out \
         ARCH=arm64 \
-        SUBARCH=arm64 \
         CC=clang \
         CLANG_TRIPLE=aarch64-linux-gnu- \
         CROSS_COMPILE=aarch64-linux-gnu- \
         CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+        HOSTCFLAGS="-fcommon" \
+        KCFLAGS="-Wno-error=gnu-variable-sized-type-not-at-end" \
         -j$(nproc --all) \
         Image.gz-dtb
 

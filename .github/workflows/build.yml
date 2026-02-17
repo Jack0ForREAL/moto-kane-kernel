@@ -1,4 +1,4 @@
-name: Build Moto Kane (Verified Toolchain)
+name: Build Moto Kane (The Correct Way)
 on: [workflow_dispatch]
 
 jobs:
@@ -14,19 +14,20 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y git bc bison flex libssl-dev build-essential libncurses5-dev libncursesw5-dev zlib1g-dev lib32z1 lib32ncurses5-dev liblz4-tool libtinfo5
 
-    - name: Download Verified Toolchain
+    - name: Download Period-Correct Toolchain (Clang 10)
       run: |
-        # This is a public, known-good toolchain repository. It will download successfully.
-        git clone --depth=1 https://github.com/pkm774/android-kernel-tools.git tools
+        # This is an older Clang that is compatible with the old kernel source.
+        # This will fix the 'register "sp"' and other compilation errors.
+        git clone --depth=1 https://github.com/AOSP-Pixel-Experience-Devices/aosp-clang.git clang
 
-    - name: Configure & Strip Checks
+    - name: Configure Kernel
       run: |
         cd source
         
         # 1. Load the defconfig
         make O=out ARCH=arm64 HOSTCFLAGS="-fcommon" kane_defconfig
 
-        # 2. KILL LTO & STACK PROTECTOR (Bypass compiler check errors)
+        # 2. Disable unnecessary security/optimizations that cause issues
         sed -i 's/CONFIG_LTO_CLANG=y/# CONFIG_LTO_CLANG is not set/' out/.config
         sed -i 's/CONFIG_CC_STACKPROTECTOR_STRONG=y/# CONFIG_CC_STACKPROTECTOR_STRONG is not set/' out/.config
         echo "CONFIG_LTO_NONE=y" >> out/.config
@@ -40,11 +41,10 @@ jobs:
         # 4. Update the config
         make O=out ARCH=arm64 HOSTCFLAGS="-fcommon" olddefconfig
 
-    - name: Build (Full Toolchain Override)
+    - name: Build With Compatible Toolchain
       run: |
         cd source
-        # This PATH is now correct for the new toolchain folder structure
-        export PATH=$GITHUB_WORKSPACE/tools/clang/host/linux-x86/clang-r428724/bin:$PATH
+        export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
         export CLANG_TRIPLE=aarch64-linux-gnu-
         
         make O=out \
@@ -58,11 +58,7 @@ jobs:
         OBJCOPY=llvm-objcopy \
         OBJDUMP=llvm-objdump \
         READELF=llvm-readelf \
-        HOSTCC=clang \
-        HOSTCXX=clang++ \
-        HOSTAR=llvm-ar \
-        HOSTLD=ld.lld \
-        KCFLAGS="-Wno-error" \
+        HOSTCFLAGS="-fcommon" \
         -j$(nproc --all) \
         Image.gz-dtb
 

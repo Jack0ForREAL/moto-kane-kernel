@@ -1,4 +1,4 @@
-name: Build Moto Kane (The Correct Way)
+name: Build Moto Kane (Final Brute Force)
 on: [workflow_dispatch]
 
 jobs:
@@ -9,56 +9,59 @@ jobs:
       run: |
         git clone --depth=1 -b lineage-18.1 https://github.com/LineageOS/android_kernel_motorola_exynos9610.git source
 
-    - name: Install Dependencies
+    - name: Install Dependencies & Clang 11
       run: |
         sudo apt-get update
-        sudo apt-get install -y git bc bison flex libssl-dev build-essential libncurses5-dev libncursesw5-dev zlib1g-dev lib32z1 lib32ncurses5-dev liblz4-tool libtinfo5
-
-    - name: Download Period-Correct Toolchain (Clang 10)
-      run: |
-        # This is an older Clang that is compatible with the old kernel source.
-        # This will fix the 'register "sp"' and other compilation errors.
-        git clone --depth=1 https://github.com/AOSP-Pixel-Experience-Devices/aosp-clang.git clang
+        # We install clang-11 directly from Ubuntu. It supports the old 'sp' register code.
+        sudo apt-get install -y git bc bison flex libssl-dev build-essential libncurses5-dev libncursesw5-dev zlib1g-dev lib32z1 lib32ncurses5-dev liblz4-tool libtinfo5 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi clang-11 lld-11
 
     - name: Configure Kernel
       run: |
         cd source
-        
-        # 1. Load the defconfig
+        export ARCH=arm64
+        # Load the default config
         make O=out ARCH=arm64 HOSTCFLAGS="-fcommon" kane_defconfig
 
-        # 2. Disable unnecessary security/optimizations that cause issues
+        # 1. DISABLE LTO & STACK PROTECTOR (The usual suspects for build failure)
         sed -i 's/CONFIG_LTO_CLANG=y/# CONFIG_LTO_CLANG is not set/' out/.config
         sed -i 's/CONFIG_CC_STACKPROTECTOR_STRONG=y/# CONFIG_CC_STACKPROTECTOR_STRONG is not set/' out/.config
         echo "CONFIG_LTO_NONE=y" >> out/.config
         echo "CONFIG_CC_STACKPROTECTOR_NONE=y" >> out/.config
 
-        # 3. UNLOCK GOVERNORS
+        # 2. UNLOCK EVERYTHING
         echo "CONFIG_CPU_FREQ_GOV_PERFORMANCE=y" >> out/.config
         echo "CONFIG_CPU_FREQ_GOV_ONDEMAND=y" >> out/.config
         echo "CONFIG_CPU_FREQ_STAT=y" >> out/.config
+        echo "CONFIG_TCP_CONG_WESTWOOD=y" >> out/.config
+        echo "CONFIG_DEFAULT_WESTWOOD=y" >> out/.config
         
-        # 4. Update the config
         make O=out ARCH=arm64 HOSTCFLAGS="-fcommon" olddefconfig
 
-    - name: Build With Compatible Toolchain
+    - name: Build With System Clang 11
       run: |
         cd source
-        export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
-        export CLANG_TRIPLE=aarch64-linux-gnu-
-        
+        # We point everything to the Clang 11 we just installed via apt
+        export CC="clang-11"
+        export LD="ld.lld-11"
+        export AR="llvm-ar-11"
+        export NM="llvm-nm-11"
+        export OBJCOPY="llvm-objcopy-11"
+        export OBJDUMP="llvm-objdump-11"
+        export STRIP="llvm-strip-11"
+
         make O=out \
         ARCH=arm64 \
-        CC=clang \
-        AS=llvm-as \
-        LD=ld.lld \
-        AR=llvm-ar \
-        NM=llvm-nm \
-        STRIP=llvm-strip \
-        OBJCOPY=llvm-objcopy \
-        OBJDUMP=llvm-objdump \
-        READELF=llvm-readelf \
+        CC="$CC" \
+        LD="$LD" \
+        AR="$AR" \
+        NM="$NM" \
+        OBJCOPY="$OBJCOPY" \
+        OBJDUMP="$OBJDUMP" \
+        STRIP="$STRIP" \
+        CROSS_COMPILE=aarch64-linux-gnu- \
+        CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
         HOSTCFLAGS="-fcommon" \
+        KCFLAGS="-Wno-error -Wno-gnu-variable-sized-type-not-at-end -fno-stack-protector" \
         -j$(nproc --all) \
         Image.gz-dtb
 

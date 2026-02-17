@@ -1,4 +1,4 @@
-name: Build Moto Kane (Final Bypass)
+name: Build Moto Kane (Brute Force Override)
 on: [workflow_dispatch]
 
 jobs:
@@ -12,26 +12,23 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y git bc bison flex libssl-dev build-essential libncurses5-dev libncursesw5-dev zlib1g-dev lib32z1 lib32ncurses5-dev liblz4-tool libtinfo5 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+        sudo apt-get install -y git bc bison flex libssl-dev build-essential libncurses5-dev libncursesw5-dev zlib1g-dev lib32z1 lib32ncurses5-dev liblz4-tool libtinfo5
 
-    - name: Download Proton Clang
+    - name: Download AOSP Clang (More Compatible)
       run: |
-        git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
+        # Proton Clang is failing, switching to the official Android toolchain
+        git clone --depth=1 https://github.com/kdrag0n/aosp-clang clang
 
-    - name: Configure & Strip Security Checks
+    - name: Configure & Strip Checks
       run: |
         cd source
-        export ARCH=arm64
-        export CROSS_COMPILE=$GITHUB_WORKSPACE/clang/bin/aarch64-linux-gnu-
         
         # 1. Load the defconfig
         make O=out ARCH=arm64 HOSTCFLAGS="-fcommon" kane_defconfig
 
-        # 2. KILL LTO & STACK PROTECTOR (Bypasses the "Gold" and "Stack-Protector" errors)
-        sed -i 's/CONFIG_LTO_CLANG=y/CONFIG_LTO_NONE=y/' out/.config
-        sed -i 's/CONFIG_CC_STACKPROTECTOR_STRONG=y/CONFIG_CC_STACKPROTECTOR_NONE=y/' out/.config
-        sed -i '/CONFIG_LTO_CLANG/d' out/.config
-        sed -i '/CONFIG_CC_STACKPROTECTOR_STRONG/d' out/.config
+        # 2. KILL LTO & STACK PROTECTOR (Bypass compiler check errors)
+        sed -i 's/CONFIG_LTO_CLANG=y/# CONFIG_LTO_CLANG is not set/' out/.config
+        sed -i 's/CONFIG_CC_STACKPROTECTOR_STRONG=y/# CONFIG_CC_STACKPROTECTOR_STRONG is not set/' out/.config
         echo "CONFIG_LTO_NONE=y" >> out/.config
         echo "CONFIG_CC_STACKPROTECTOR_NONE=y" >> out/.config
 
@@ -43,28 +40,31 @@ jobs:
         # 4. Update the config
         make O=out ARCH=arm64 HOSTCFLAGS="-fcommon" olddefconfig
 
-    - name: Build (The 'Brute Force' Method)
+    - name: Build (Full Toolchain Override)
       run: |
         cd source
         export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
+        export CLANG_TRIPLE=aarch64-linux-gnu-
         
-        # We pass -fno-stack-protector to KCFLAGS to ensure the compiler doesn't look for it
-        # We use -fintegrated-as to fix the -EL error
+        # This section explicitly tells the build system what to use for EVERY tool.
+        # It cannot fail by choosing the wrong one anymore.
         
         make O=out \
         ARCH=arm64 \
-        CC="clang -fintegrated-as" \
+        CC=clang \
+        AS=llvm-as \
         LD=ld.lld \
         AR=llvm-ar \
         NM=llvm-nm \
+        STRIP=llvm-strip \
         OBJCOPY=llvm-objcopy \
         OBJDUMP=llvm-objdump \
-        STRIP=llvm-strip \
-        CLANG_TRIPLE=aarch64-linux-gnu- \
-        CROSS_COMPILE=aarch64-linux-gnu- \
-        CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-        HOSTCFLAGS="-fcommon" \
-        KCFLAGS="-Wno-error -Wno-gnu-variable-sized-type-not-at-end -fno-stack-protector" \
+        READELF=llvm-readelf \
+        HOSTCC=clang \
+        HOSTCXX=clang++ \
+        HOSTAR=llvm-ar \
+        HOSTLD=ld.lld \
+        KCFLAGS="-Wno-error" \
         -j$(nproc --all) \
         Image.gz-dtb
 

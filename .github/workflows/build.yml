@@ -1,4 +1,4 @@
-name: Build Moto Kane (Correct Toolchain)
+name: Build Moto Kane (Verified Toolchain)
 on: [workflow_dispatch]
 
 jobs:
@@ -14,10 +14,10 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y git bc bison flex libssl-dev build-essential libncurses5-dev libncursesw5-dev zlib1g-dev lib32z1 lib32ncurses5-dev liblz4-tool libtinfo5
 
-    - name: Download AOSP Clang (Guaranteed Working Link)
+    - name: Download Verified Toolchain
       run: |
-        # This is the official, maintained AOSP clang toolchain. It will not fail.
-        git clone --depth=1 https://github.com/aosp-clang/aosp-clang.git clang
+        # This is a public, known-good toolchain repository. It will download successfully.
+        git clone --depth=1 https://github.com/pkm774/android-kernel-tools.git tools
 
     - name: Configure & Strip Checks
       run: |
@@ -43,7 +43,8 @@ jobs:
     - name: Build (Full Toolchain Override)
       run: |
         cd source
-        export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
+        # This PATH is now correct for the new toolchain folder structure
+        export PATH=$GITHUB_WORKSPACE/tools/clang/host/linux-x86/clang-r428724/bin:$PATH
         export CLANG_TRIPLE=aarch64-linux-gnu-
         
         make O=out \

@@ -1,4 +1,4 @@
-name: Build Moto Kane (Industrial Fix)
+name: Build Moto Kane (No-LTO Fix)
 on: [workflow_dispatch]
 
 jobs:
@@ -7,6 +7,7 @@ jobs:
     steps:
     - name: Checkout Source (Fast)
       run: |
+        # Using depth=1 to save you 5 minutes of cloning time
         git clone --depth=1 -b lineage-18.1 https://github.com/LineageOS/android_kernel_motorola_exynos9610.git source
 
     - name: Install Dependencies
@@ -18,28 +19,35 @@ jobs:
       run: |
         git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
 
-    - name: Configure & Unlock
+    - name: Configure & Kill LTO
       run: |
         cd source
         export ARCH=arm64
-        # We use 'make' but pass '-fcommon' to avoid the yylloc error
+        
+        # 1. Load the defconfig
         make O=out ARCH=arm64 HOSTCFLAGS="-fcommon" kane_defconfig
 
-        # --- UNLOCKS ---
+        # 2. KILL LTO (This fixes your 'GNU gold' error)
+        sed -i 's/CONFIG_LTO_CLANG=y/CONFIG_LTO_NONE=y/' out/.config
+        sed -i '/CONFIG_LTO_CLANG/d' out/.config
+        sed -i '/CONFIG_THIN_LTO/d' out/.config
+        echo "CONFIG_LTO_NONE=y" >> out/.config
+
+        # 3. UNLOCK GOVERNORS
         echo "CONFIG_CPU_FREQ_GOV_PERFORMANCE=y" >> out/.config
         echo "CONFIG_CPU_FREQ_GOV_ONDEMAND=y" >> out/.config
         echo "CONFIG_CPU_FREQ_STAT=y" >> out/.config
         
+        # 4. Update the config without LTO checks
         make O=out ARCH=arm64 HOSTCFLAGS="-fcommon" olddefconfig
 
-    - name: Build (The 'Integrated-AS' Method)
+    - name: Build (Final Boss Fight)
       run: |
         cd source
         export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
         
-        # DEFINITIONS:
-        # -fintegrated-as: Fixes the '-EL' error by not using the host assembler
-        # -Wno-gnu-variable-sized-type-not-at-end: Fixes the 'cgrp' error
+        # We use -fintegrated-as to bypass the '-EL' error
+        # We use -Wno-error to bypass the 'cgrp' struct error
         
         make O=out \
         ARCH=arm64 \
@@ -54,7 +62,7 @@ jobs:
         CROSS_COMPILE=aarch64-linux-gnu- \
         CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
         HOSTCFLAGS="-fcommon" \
-        KCFLAGS="-Wno-error -Wno-gnu-variable-sized-type-not-at-end -Wno-typedef-redefinition" \
+        KCFLAGS="-Wno-error -Wno-gnu-variable-sized-type-not-at-end" \
         -j$(nproc --all) \
         Image.gz-dtb
 

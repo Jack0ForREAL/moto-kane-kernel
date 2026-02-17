@@ -1,4 +1,4 @@
-name: Build Moto Kane (Force Build)
+name: Build Moto Kane (Industrial Fix)
 on: [workflow_dispatch]
 
 jobs:
@@ -22,39 +22,39 @@ jobs:
       run: |
         cd source
         export ARCH=arm64
-        export CROSS_COMPILE=aarch64-linux-gnu-
-        export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-        
-        # Load Config
-        make O=out ARCH=arm64 kane_defconfig
+        # We use 'make' but pass '-fcommon' to avoid the yylloc error
+        make O=out ARCH=arm64 HOSTCFLAGS="-fcommon" kane_defconfig
 
         # --- UNLOCKS ---
         echo "CONFIG_CPU_FREQ_GOV_PERFORMANCE=y" >> out/.config
         echo "CONFIG_CPU_FREQ_GOV_ONDEMAND=y" >> out/.config
         echo "CONFIG_CPU_FREQ_STAT=y" >> out/.config
         
-        # Force apply config changes
-        make O=out ARCH=arm64 olddefconfig
+        make O=out ARCH=arm64 HOSTCFLAGS="-fcommon" olddefconfig
 
-    - name: Build (The 'No-Error' Method)
+    - name: Build (The 'Integrated-AS' Method)
       run: |
         cd source
-        # Add Clang to path but we will point to system tools for the assembler
         export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
         
-        # FLAGS EXPLANATION:
-        # HOSTCFLAGS="-fcommon" -> Fixes yylloc multiple definition
-        # KCFLAGS="-Wno-error" -> Tells the compiler NOT to stop on warnings (Fixes cgrp error)
-        # LD_LIBRARY_PATH -> Ensures clang finds its own libraries
+        # DEFINITIONS:
+        # -fintegrated-as: Fixes the '-EL' error by not using the host assembler
+        # -Wno-gnu-variable-sized-type-not-at-end: Fixes the 'cgrp' error
         
         make O=out \
         ARCH=arm64 \
-        CC=clang \
+        CC="clang -fintegrated-as" \
+        LD=ld.lld \
+        AR=llvm-ar \
+        NM=llvm-nm \
+        OBJCOPY=llvm-objcopy \
+        OBJDUMP=llvm-objdump \
+        STRIP=llvm-strip \
         CLANG_TRIPLE=aarch64-linux-gnu- \
         CROSS_COMPILE=aarch64-linux-gnu- \
         CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
         HOSTCFLAGS="-fcommon" \
-        KCFLAGS="-Wno-error -Wno-gnu-variable-sized-type-not-at-end" \
+        KCFLAGS="-Wno-error -Wno-gnu-variable-sized-type-not-at-end -Wno-typedef-redefinition" \
         -j$(nproc --all) \
         Image.gz-dtb
 

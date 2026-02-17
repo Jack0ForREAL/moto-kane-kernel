@@ -1,20 +1,17 @@
-name: Build Moto Kane (Fix 2026)
+name: Build Moto Kane (Force Build)
 on: [workflow_dispatch]
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-    - name: Checkout Source
+    - name: Checkout Source (Fast)
       run: |
-        git clone https://github.com/LineageOS/android_kernel_motorola_exynos9610.git source
-        cd source
-        git checkout lineage-18.1
+        git clone --depth=1 -b lineage-18.1 https://github.com/LineageOS/android_kernel_motorola_exynos9610.git source
 
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        # Installing the system cross-compilers is CRITICAL here
         sudo apt-get install -y git bc bison flex libssl-dev build-essential libncurses5-dev libncursesw5-dev zlib1g-dev lib32z1 lib32ncurses5-dev liblz4-tool libtinfo5 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
     - name: Download Proton Clang
@@ -25,33 +22,30 @@ jobs:
       run: |
         cd source
         export ARCH=arm64
+        export CROSS_COMPILE=aarch64-linux-gnu-
+        export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
         
-        # FIX 1: Allow multiple definitions (fixes the dtc/yylloc error on new Ubuntu)
-        export HOSTCFLAGS="-fcommon"
-
         # Load Config
-        if [ -f "arch/arm64/configs/exynos9609-kane_defconfig" ]; then
-           make O=out exynos9609-kane_defconfig
-        else
-           make O=out kane_defconfig
-        fi
+        make O=out ARCH=arm64 kane_defconfig
 
         # --- UNLOCKS ---
         echo "CONFIG_CPU_FREQ_GOV_PERFORMANCE=y" >> out/.config
         echo "CONFIG_CPU_FREQ_GOV_ONDEMAND=y" >> out/.config
-        echo "CONFIG_CPU_FREQ_GOV_CONSERVATIVE=y" >> out/.config
         echo "CONFIG_CPU_FREQ_STAT=y" >> out/.config
-        echo "CONFIG_TCP_CONG_WESTWOOD=y" >> out/.config
         
-        make O=out olddefconfig
+        # Force apply config changes
+        make O=out ARCH=arm64 olddefconfig
 
-    - name: Build (With Fixes)
+    - name: Build (The 'No-Error' Method)
       run: |
         cd source
+        # Add Clang to path but we will point to system tools for the assembler
         export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
         
-        # FIX 2: We use 'CC=clang' but we point 'CROSS_COMPILE' to the SYSTEM GCC.
-        # This prevents the "unrecognized option -EL" error because it uses the correct assembler.
+        # FLAGS EXPLANATION:
+        # HOSTCFLAGS="-fcommon" -> Fixes yylloc multiple definition
+        # KCFLAGS="-Wno-error" -> Tells the compiler NOT to stop on warnings (Fixes cgrp error)
+        # LD_LIBRARY_PATH -> Ensures clang finds its own libraries
         
         make O=out \
         ARCH=arm64 \
@@ -60,6 +54,7 @@ jobs:
         CROSS_COMPILE=aarch64-linux-gnu- \
         CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
         HOSTCFLAGS="-fcommon" \
+        KCFLAGS="-Wno-error -Wno-gnu-variable-sized-type-not-at-end" \
         -j$(nproc --all) \
         Image.gz-dtb
 

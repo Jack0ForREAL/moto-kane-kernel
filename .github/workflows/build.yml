@@ -1,9 +1,9 @@
-name: Build Moto One Vision (Rescue Mode)
+name: Build Moto Kane (Fix 2026)
 on: [workflow_dispatch]
 
 jobs:
   build:
-    runs-on: ubuntu-20.04  # Downgrading OS to fix compiler errors
+    runs-on: ubuntu-22.04
     steps:
     - name: Checkout Source
       run: |
@@ -14,6 +14,7 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt-get update
+        # Installing the system cross-compilers is CRITICAL here
         sudo apt-get install -y git bc bison flex libssl-dev build-essential libncurses5-dev libncursesw5-dev zlib1g-dev lib32z1 lib32ncurses5-dev liblz4-tool libtinfo5 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
     - name: Download Proton Clang
@@ -25,12 +26,7 @@ jobs:
         cd source
         export ARCH=arm64
         
-        # Use system GCC for Cross Compile to avoid assembler issues
-        export CROSS_COMPILE=aarch64-linux-gnu-
-        export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-        export CC=$GITHUB_WORKSPACE/clang/bin/clang
-        
-        # Fix for DTC error (multiple definition)
+        # FIX 1: Allow multiple definitions (fixes the dtc/yylloc error on new Ubuntu)
         export HOSTCFLAGS="-fcommon"
 
         # Load Config
@@ -40,21 +36,22 @@ jobs:
            make O=out kane_defconfig
         fi
 
-        # --- UNLOCK GOVERNORS ---
+        # --- UNLOCKS ---
         echo "CONFIG_CPU_FREQ_GOV_PERFORMANCE=y" >> out/.config
         echo "CONFIG_CPU_FREQ_GOV_ONDEMAND=y" >> out/.config
         echo "CONFIG_CPU_FREQ_GOV_CONSERVATIVE=y" >> out/.config
         echo "CONFIG_CPU_FREQ_STAT=y" >> out/.config
+        echo "CONFIG_TCP_CONG_WESTWOOD=y" >> out/.config
         
         make O=out olddefconfig
 
-    - name: Build
+    - name: Build (With Fixes)
       run: |
         cd source
         export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
         
-        # We disable -Werror to ignore the struct offset warning
-        # We use HOSTCFLAGS=-fcommon to fix the dtc linker error
+        # FIX 2: We use 'CC=clang' but we point 'CROSS_COMPILE' to the SYSTEM GCC.
+        # This prevents the "unrecognized option -EL" error because it uses the correct assembler.
         
         make O=out \
         ARCH=arm64 \
@@ -63,7 +60,6 @@ jobs:
         CROSS_COMPILE=aarch64-linux-gnu- \
         CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
         HOSTCFLAGS="-fcommon" \
-        KCFLAGS="-Wno-error=gnu-variable-sized-type-not-at-end" \
         -j$(nproc --all) \
         Image.gz-dtb
 

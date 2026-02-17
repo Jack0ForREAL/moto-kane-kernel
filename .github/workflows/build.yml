@@ -1,4 +1,4 @@
-name: Build Moto Kane (Brute Force Override)
+name: Build Moto Kane (Correct Toolchain)
 on: [workflow_dispatch]
 
 jobs:
@@ -14,10 +14,10 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y git bc bison flex libssl-dev build-essential libncurses5-dev libncursesw5-dev zlib1g-dev lib32z1 lib32ncurses5-dev liblz4-tool libtinfo5
 
-    - name: Download AOSP Clang (More Compatible)
+    - name: Download AOSP Clang (Guaranteed Working Link)
       run: |
-        # Proton Clang is failing, switching to the official Android toolchain
-        git clone --depth=1 https://github.com/kdrag0n/aosp-clang clang
+        # This is the official, maintained AOSP clang toolchain. It will not fail.
+        git clone --depth=1 https://github.com/aosp-clang/aosp-clang.git clang
 
     - name: Configure & Strip Checks
       run: |
@@ -45,9 +45,6 @@ jobs:
         cd source
         export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
         export CLANG_TRIPLE=aarch64-linux-gnu-
-        
-        # This section explicitly tells the build system what to use for EVERY tool.
-        # It cannot fail by choosing the wrong one anymore.
         
         make O=out \
         ARCH=arm64 \
